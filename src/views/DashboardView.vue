@@ -2,19 +2,9 @@
   <div class="dashboard-layout">
     <nav class="navbar">
       <div class="nav-brand">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke-width="2"
-          stroke="currentColor"
-          class="nav-icon"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+          class="nav-icon">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <span>HadirLah!</span>
       </div>
@@ -35,27 +25,24 @@
         <div v-if="errorMessage" class="alert alert-error">
           {{ errorMessage }}
         </div>
+        <div class="clock-section">
+          <h1 class="digital-clock">{{ currentTime }}</h1>
+          <p class="date-display">{{ currentDate }}</p>
+          <div class="timezone-badges">
+            <span :class="['badge', activeZone === 'WIB' ? 'active' : '']">WIB</span>
+            <span :class="['badge', activeZone === 'WITA' ? 'active' : '']">WITA</span>
+            <span :class="['badge', activeZone === 'WIT' ? 'active' : '']">WIT</span>
+          </div>
+        </div>
 
         <div class="action-buttons">
-          <button
-            @click="prosesAbsen('in')"
-            :disabled="isLoading"
-            class="btn-absen btn-masuk"
-          >
-            <span v-if="!isLoading || actionType !== 'in'"
-              >Masuk (Clock In)</span
-            >
+          <button @click="prosesAbsen('in')" :disabled="isLoading" class="btn-absen btn-masuk">
+            <span v-if="!isLoading || actionType !== 'in'">Masuk (Clock In)</span>
             <span v-else>Memproses...</span>
           </button>
 
-          <button
-            @click="prosesAbsen('out')"
-            :disabled="isLoading"
-            class="btn-absen btn-keluar"
-          >
-            <span v-if="!isLoading || actionType !== 'out'"
-              >Keluar (Clock Out)</span
-            >
+          <button @click="prosesAbsen('out')" :disabled="isLoading" class="btn-absen btn-keluar">
+            <span v-if="!isLoading || actionType !== 'out'">Keluar (Clock Out)</span>
             <span v-else>Memproses...</span>
           </button>
         </div>
@@ -69,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import axios from "axios";
 import { useRouter } from "vue-router";
 
@@ -78,16 +65,63 @@ const isLoading = ref(false);
 const actionType = ref(""); // Menyimpan status tombol mana yang ditekan ('in' atau 'out')
 const successMessage = ref("");
 const errorMessage = ref("");
+const currentTime = ref("--:--:--");
+const currentDate = ref("Memuat tanggal...");
+const activeZone = ref('WIB');
 
-// Cek apakah user sudah login (punya token) saat halaman dibuka
+// --- TAHAP 5: Tambahkan penampung history ---
+const historyData = ref([]);
+
+const updateTime = () => {
+  const now = new Date();
+
+  // Format Waktu (HH:mm:ss)
+  currentTime.value = now.toLocaleTimeString('en-GB');
+
+  // Format Tanggal Indonesia
+  currentDate.value = now.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  // Logika Penentuan Zona (Berdasarkan Offset Browser)
+  const offset = now.getTimezoneOffset() / -60;
+  if (offset === 8) activeZone.value = 'WITA';
+  else if (offset === 9) activeZone.value = 'WIT';
+  else activeZone.value = 'WIB';
+};
+
+// Fungsi ambil history absen (Persiapan Fitur 5)
+const fetchHistory = async () => {
+  try {
+    const token = localStorage.getItem("token");
+    const response = await axios.get(import.meta.env.VITE_API_URL + '/attendance/history', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    historyData.value = response.data;
+  } catch (error) {
+    console.error("Gagal mengambil history:", error);
+  }
+};
+
+let timer;
 onMounted(() => {
   const token = localStorage.getItem("token");
   if (!token) {
-    router.push("/"); // Lempar ke halaman login jika tidak ada token
+    router.push("/");
+  } else {
+    updateTime();
+    timer = setInterval(updateTime, 1000);
+    fetchHistory(); // Ambil history saat pertama buka
   }
 });
 
-// Fungsi untuk Logout
+onUnmounted(() => {
+  clearInterval(timer);
+});
+
 const handleLogout = () => {
   localStorage.removeItem("token");
   router.push("/");
@@ -141,34 +175,29 @@ const prosesAbsen = async (type) => {
   errorMessage.value = "";
 
   try {
-    // 1. Ambil Koordinat GPS dulu
     const coords = await getGPSLocation();
-
-    // 2. Siapkan Token dan Endpoint
     const token = localStorage.getItem("token");
-    const endpoint =
-      type === "in" ? "/attendance/clock-in" : "/attendance/clock-out";
+    const endpoint = type === "in" ? "/attendance/clock-in" : "/attendance/clock-out";
 
-    // 3. Tembak API Laravel
     const response = await axios.post(
       import.meta.env.VITE_API_URL + endpoint,
       coords,
       {
         headers: {
-          Authorization: `Bearer ${token}`, // Sertakan token login!
+          Authorization: `Bearer ${token}`,
           Accept: "application/json",
         },
       },
     );
 
-    // 4. Jika sukses
     successMessage.value = response.data.message;
+    fetchHistory(); // Refresh history setelah absen berhasil!
+
   } catch (error) {
-    // Tangani error dari GPS (string) ATAU error dari Laravel (Axios)
     if (typeof error === "string") {
-      errorMessage.value = error; // Error dari getGPSLocation
+      errorMessage.value = error;
     } else if (error.response && error.response.data) {
-      errorMessage.value = error.response.data.message; // Error validasi dari Laravel (misal: "Sudah absen")
+      errorMessage.value = error.response.data.message;
     } else {
       errorMessage.value = "Gagal terhubung ke server.";
     }
@@ -203,6 +232,7 @@ const prosesAbsen = async (type) => {
   font-size: 1.25rem;
   color: #4f46e5;
 }
+
 .nav-icon {
   width: 24px;
   height: 24px;
@@ -218,6 +248,7 @@ const prosesAbsen = async (type) => {
   cursor: pointer;
   transition: all 0.2s;
 }
+
 .btn-logout:hover {
   background-color: #fef2f2;
 }
@@ -237,10 +268,12 @@ const prosesAbsen = async (type) => {
   max-width: 500px;
   text-align: center;
 }
+
 .welcome-card h2 {
   margin-top: 0;
   color: #111827;
 }
+
 .welcome-card p {
   color: #6b7280;
   font-size: 0.95rem;
@@ -254,11 +287,13 @@ const prosesAbsen = async (type) => {
   font-weight: 500;
   font-size: 0.9rem;
 }
+
 .alert-success {
   background-color: #d1fae5;
   color: #065f46;
   border: 1px solid #a7f3d0;
 }
+
 .alert-error {
   background-color: #fee2e2;
   color: #991b1b;
@@ -283,13 +318,16 @@ const prosesAbsen = async (type) => {
     opacity 0.2s,
     transform 0.1s;
 }
+
 .btn-absen:hover:not(:disabled) {
   opacity: 0.9;
   transform: translateY(-2px);
 }
+
 .btn-absen:active:not(:disabled) {
   transform: translateY(0);
 }
+
 .btn-absen:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -297,15 +335,63 @@ const prosesAbsen = async (type) => {
 
 .btn-masuk {
   background-color: #10b981;
-} /* Hijau */
+}
+
+/* Hijau */
 .btn-keluar {
   background-color: #ef4444;
-} /* Merah */
+}
+
+/* Merah */
 
 .loading-text {
   margin-top: 1rem;
   font-size: 0.85rem;
   color: #6b7280;
   font-style: italic;
+}
+
+.clock-section {
+  background: #f8fafc;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  margin-bottom: 2rem;
+  border: 1px solid #e2e8f0;
+}
+
+.digital-clock {
+  font-size: 3rem;
+  font-weight: 800;
+  margin: 0;
+  color: #1e293b;
+  font-family: 'Courier New', Courier, monospace;
+  /* Gaya digital */
+}
+
+.date-display {
+  color: #64748b;
+  font-weight: 500;
+  margin-top: 0.5rem;
+}
+
+.timezone-badges {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 2rem;
+  background: #e2e8f0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.badge.active {
+  background: #4F46E5;
+  color: white;
 }
 </style>
