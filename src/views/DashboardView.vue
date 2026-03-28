@@ -50,6 +50,42 @@
         <div v-if="isLoading" class="loading-text">
           Sedang mengambil titik koordinat GPS Anda...
         </div>
+
+        <div class="history-section">
+          <div class="history-header">
+            <h3>Riwayat Absen Bulan Ini</h3>
+            <span class="month-badge">{{ new Date().toLocaleString('id-ID', { month: 'long' }) }}</span>
+          </div>
+
+          <div v-if="historyData.length === 0" class="empty-history">
+            Belum ada data absensi bulan ini.
+          </div>
+
+          <div v-else class="table-responsive">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Tanggal</th>
+                  <th>Masuk</th>
+                  <th>Keluar</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in historyData" :key="item.id">
+                  <td class="td-date">{{ formatDate(item.date) }}</td>
+                  <td class="td-time">{{ item.clock_in_time || '--:--' }}</td>
+                  <td class="td-time">{{ item.clock_out_time || '--:--' }}</td>
+                  <td>
+                    <span :class="['status-pill', item.clock_out_time ? 'complete' : 'incomplete']">
+                      {{ item.clock_out_time ? 'Selesai' : 'Aktif' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -68,6 +104,12 @@ const errorMessage = ref("");
 const currentTime = ref("--:--:--");
 const currentDate = ref("Memuat tanggal...");
 const activeZone = ref('WIB');
+
+
+const formatDate = (dateString) => {
+  const options = { day: 'numeric', month: 'short' };
+  return new Date(dateString).toLocaleDateString('id-ID', options);
+};
 
 // --- TAHAP 5: Tambahkan penampung history ---
 const historyData = ref([]);
@@ -101,6 +143,7 @@ const fetchHistory = async () => {
       headers: { Authorization: `Bearer ${token}` }
     });
     historyData.value = response.data;
+    console.log("Data History Berhasil Diambil:", historyData.value);
   } catch (error) {
     console.error("Gagal mengambil history:", error);
   }
@@ -393,5 +436,91 @@ const prosesAbsen = async (type) => {
 .badge.active {
   background: #4F46E5;
   color: white;
+}
+
+.history-section {
+  margin-top: 2rem;
+  text-align: left;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1.5rem;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.history-header h3 {
+  font-size: 1.1rem;
+  color: #1f2937;
+  margin: 0;
+}
+
+.month-badge {
+  background: #e0e7ff;
+  color: #4338ca;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.table-responsive {
+  overflow-x: auto;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.history-table th {
+  background: #f9fafb;
+  padding: 0.75rem;
+  color: #6b7280;
+  font-weight: 600;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.history-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  color: #374151;
+}
+
+.td-date {
+  font-weight: 600;
+}
+
+.td-time {
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.status-pill {
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.status-pill.complete {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-pill.incomplete {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.empty-history {
+  padding: 2rem;
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 0.9rem;
 }
 </style>
