@@ -1,0 +1,311 @@
+<template>
+  <div class="dashboard-layout">
+    <nav class="navbar">
+      <div class="nav-brand">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+          stroke="currentColor"
+          class="nav-icon"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span>HadirLah!</span>
+      </div>
+      <button @click="handleLogout" class="btn-logout">Logout</button>
+    </nav>
+
+    <main class="main-content">
+      <div class="welcome-card">
+        <h2>Dashboard Absensi</h2>
+        <p>
+          Pastikan GPS Anda aktif dan berikan izin akses lokasi pada browser
+          sebelum melakukan absensi.
+        </p>
+
+        <div v-if="successMessage" class="alert alert-success">
+          {{ successMessage }}
+        </div>
+        <div v-if="errorMessage" class="alert alert-error">
+          {{ errorMessage }}
+        </div>
+
+        <div class="action-buttons">
+          <button
+            @click="prosesAbsen('in')"
+            :disabled="isLoading"
+            class="btn-absen btn-masuk"
+          >
+            <span v-if="!isLoading || actionType !== 'in'"
+              >Masuk (Clock In)</span
+            >
+            <span v-else>Memproses...</span>
+          </button>
+
+          <button
+            @click="prosesAbsen('out')"
+            :disabled="isLoading"
+            class="btn-absen btn-keluar"
+          >
+            <span v-if="!isLoading || actionType !== 'out'"
+              >Keluar (Clock Out)</span
+            >
+            <span v-else>Memproses...</span>
+          </button>
+        </div>
+
+        <div v-if="isLoading" class="loading-text">
+          Sedang mengambil titik koordinat GPS Anda...
+        </div>
+      </div>
+    </main>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from "vue";
+import axios from "axios";
+import { useRouter } from "vue-router";
+
+const router = useRouter();
+const isLoading = ref(false);
+const actionType = ref(""); // Menyimpan status tombol mana yang ditekan ('in' atau 'out')
+const successMessage = ref("");
+const errorMessage = ref("");
+
+// Cek apakah user sudah login (punya token) saat halaman dibuka
+onMounted(() => {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    router.push("/"); // Lempar ke halaman login jika tidak ada token
+  }
+});
+
+// Fungsi untuk Logout
+const handleLogout = () => {
+  localStorage.removeItem("token");
+  router.push("/");
+};
+
+// Fungsi inti untuk mengambil GPS menggunakan API Browser bawaan (HTML5 Geolocation)
+const getGPSLocation = () => {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject("Browser Anda tidak mendukung fitur GPS/Geolokasi.");
+    } else {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        },
+        (error) => {
+          // Tangani penolakan izin atau error GPS
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              reject(
+                "Anda menolak permintaan akses lokasi. Mohon izinkan akses GPS di pengaturan browser.",
+              );
+              break;
+            case error.POSITION_UNAVAILABLE:
+              reject("Informasi lokasi tidak tersedia saat ini.");
+              break;
+            case error.TIMEOUT:
+              reject("Waktu permintaan lokasi habis (Timeout).");
+              break;
+            default:
+              reject(
+                "Terjadi kesalahan yang tidak diketahui saat mengambil lokasi.",
+              );
+              break;
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }, // Minta akurasi tinggi
+      );
+    }
+  });
+};
+
+// Fungsi untuk menembak API Laravel (Absen Masuk & Keluar)
+const prosesAbsen = async (type) => {
+  isLoading.value = true;
+  actionType.value = type;
+  successMessage.value = "";
+  errorMessage.value = "";
+
+  try {
+    // 1. Ambil Koordinat GPS dulu
+    const coords = await getGPSLocation();
+
+    // 2. Siapkan Token dan Endpoint
+    const token = localStorage.getItem("token");
+    const endpoint =
+      type === "in" ? "/attendance/clock-in" : "/attendance/clock-out";
+
+    // 3. Tembak API Laravel
+    const response = await axios.post(
+      import.meta.env.VITE_API_URL + endpoint,
+      coords,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`, // Sertakan token login!
+          Accept: "application/json",
+        },
+      },
+    );
+
+    // 4. Jika sukses
+    successMessage.value = response.data.message;
+  } catch (error) {
+    // Tangani error dari GPS (string) ATAU error dari Laravel (Axios)
+    if (typeof error === "string") {
+      errorMessage.value = error; // Error dari getGPSLocation
+    } else if (error.response && error.response.data) {
+      errorMessage.value = error.response.data.message; // Error validasi dari Laravel (misal: "Sudah absen")
+    } else {
+      errorMessage.value = "Gagal terhubung ke server.";
+    }
+  } finally {
+    isLoading.value = false;
+    actionType.value = "";
+  }
+};
+</script>
+
+<style scoped>
+.dashboard-layout {
+  min-height: 100vh;
+  background-color: #f3f4f6;
+  font-family: "Inter", sans-serif;
+}
+
+.navbar {
+  background-color: white;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: #4f46e5;
+}
+.nav-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.btn-logout {
+  background-color: transparent;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-logout:hover {
+  background-color: #fef2f2;
+}
+
+.main-content {
+  padding: 2rem;
+  display: flex;
+  justify-content: center;
+}
+
+.welcome-card {
+  background: white;
+  padding: 2.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 500px;
+  text-align: center;
+}
+.welcome-card h2 {
+  margin-top: 0;
+  color: #111827;
+}
+.welcome-card p {
+  color: #6b7280;
+  font-size: 0.95rem;
+  margin-bottom: 2rem;
+}
+
+.alert {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+.alert-success {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+.alert-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.btn-absen {
+  padding: 1rem;
+  border: none;
+  border-radius: 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
+}
+.btn-absen:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-2px);
+}
+.btn-absen:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn-absen:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-masuk {
+  background-color: #10b981;
+} /* Hijau */
+.btn-keluar {
+  background-color: #ef4444;
+} /* Merah */
+
+.loading-text {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-style: italic;
+}
+</style>
